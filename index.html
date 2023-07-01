@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vision Board Maker</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: black;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .drop-zone {
+            border: 2px dotted gray;
+            font-size: 20px;
+            color: gray;
+            width: 100%;
+            max-width: 100vh;
+            height: 97vh;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        .drop-zone img {
+            width: 200px;
+            height: 200px;
+            display: block;
+            position: absolute;
+            resize: both;
+            overflow: hidden;
+            cursor: move;
+        }
+
+        .drop-zone .resize-handle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: cyan;
+            border: 1px solid cyan;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 100; 
+        }
+
+        .drop-zone .top-left {
+            top: 0;
+            left: 0;
+            cursor: nwse-resize;
+        }
+
+        .drop-zone .top-right {
+            top: 0;
+            right: 0;
+            cursor: nesw-resize;
+        }
+
+        .drop-zone .bottom-left {
+            bottom: 0;
+            left: 0;
+            cursor: nesw-resize;
+        }
+
+        .drop-zone .bottom-right {
+            bottom: 0;
+            right: 0;
+            cursor: nwse-resize;
+        }
+
+        .drop-zone .resize-handle.circle {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background-color: cyan;
+            border: 1px solid cyan;
+            z-index: 200;
+        }
+    </style>
+</head>
+<body>
+    <div id="drop-zone" class="drop-zone">
+        <p>Drag and Drop Image</p>
+        <input type="file" id="myfile" hidden>
+    </div>
+    <script>
+        const dropZone = document.querySelector('#drop-zone');
+        const inputElement = document.querySelector('#myfile');
+        let isDragging = false;
+        let imageOffsetX, imageOffsetY;
+        let uploadedImages = [];
+        let activeImage = null;
+
+        inputElement.addEventListener('change', function (e) {
+            const clickFile = this.files[0];
+            if (clickFile) {
+                const img = createImageElement();
+                const p = dropZone.querySelector('p');
+                p.style.display = 'none';
+                const reader = new FileReader();
+                reader.readAsDataURL(clickFile);
+                reader.onloadend = function () {
+                    const src = reader.result;
+                    img.src = src;
+                    img.alt = clickFile.name;
+                };
+            }
+        });
+
+        document.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+
+        document.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const file = e.dataTransfer.files[0];
+            const imageUrl = e.dataTransfer.getData('text/url-list'); // Get the image URL if available
+
+            if (file) {
+                const img = createImageElement();
+                const p = dropZone.querySelector('p');
+                p.style.display = 'none';
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onloadend = function () {
+                    const src = reader.result;
+                    img.src = src;
+                    img.alt = file.name;
+                    img.style.left = (e.clientX - dropZone.offsetLeft) + 'px';
+                    img.style.top = (e.clientY - dropZone.offsetTop) + 'px';
+                    uploadedImages.push(file.name);
+                };
+            } else if (imageUrl && imageUrl.startsWith('http')) {
+                const img = createImageElement();
+                const p = dropZone.querySelector('p');
+                p.style.display = 'none';
+                img.src = imageUrl;
+                img.alt = 'Image from URL';
+                img.style.left = (e.clientX - dropZone.offsetLeft) + 'px';
+                img.style.top = (e.clientY - dropZone.offsetTop) + 'px';
+                uploadedImages.push(imageUrl);
+            } else if (e.dataTransfer.getData('text/html')) {
+                const htmlData = e.dataTransfer.getData('text/html');
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(htmlData, 'text/html');
+                const imgElement = doc.querySelector('img');
+                if (imgElement && imgElement.src) {
+                    const img = createImageElement();
+                    const p = dropZone.querySelector('p');
+                    p.style.display = 'none';
+                    img.src = imgElement.src;
+                    img.alt = 'Image from URL';
+                    img.style.left = (e.clientX - dropZone.offsetLeft) + 'px';
+                    img.style.top = (e.clientY - dropZone.offsetTop) + 'px';
+                    uploadedImages.push(imgElement.src);
+                }
+            }
+        });
+
+        function createImageElement() {
+            const img = document.createElement('img');
+            img.style.display = 'block';
+            img.style.position = 'absolute';
+            img.style.width = '200px';
+            img.style.height = '200px';
+            dropZone.appendChild(img);
+
+            const topLeft = createResizeHandle('top-left');
+            const topRight = createResizeHandle('top-right');
+            const bottomLeft = createResizeHandle('bottom-left');
+            const bottomRight = createResizeHandle('bottom-right');
+
+            img.addEventListener('mousedown', startDrag);
+            window.addEventListener('mouseup', stopDrag);
+
+            let initialMouseX, initialMouseY, initialImageX, initialImageY;
+            let startX, startY, startWidth, startHeight;
+            let isResizing = false;
+
+            function startDrag(e) {
+                if (e.target === img) {
+                    e.preventDefault();
+                    isDragging = true;
+
+                    // Remove event listeners from the previous active image
+                    if (activeImage && activeImage !== img) {
+                        activeImage.removeEventListener('mousedown', startDrag);
+                        window.removeEventListener('mousemove', activeImageMove);
+                    }
+
+                    activeImage = img; // Set the currently active image
+
+                    const { top, left } = img.getBoundingClientRect();
+                    imageOffsetX = e.clientX - left;
+                    imageOffsetY = e.clientY - top;
+                    initialImageX = left - dropZone.offsetLeft;
+                    initialImageY = top - dropZone.offsetTop;
+                    initialMouseX = e.clientX;
+                    initialMouseY = e.clientY;
+                    window.addEventListener('mousemove', activeImageMove);
+                }
+            }
+
+            function stopDrag() {
+                if (isDragging) {
+                    isDragging = false;
+                    window.removeEventListener('mousemove', activeImageMove);
+                }
+                if (isResizing) {
+                    isResizing = false;
+                    window.removeEventListener('mousemove', resizeCorner);
+                }
+            }
+
+            function activeImageMove(e) {
+                if (isDragging) {
+                    const deltaX = e.clientX - initialMouseX;
+                    const deltaY = e.clientY - initialMouseY;
+                    const newX = initialImageX + deltaX;
+                    const newY = initialImageY + deltaY;
+                    img.style.top = newY + 'px';
+                    img.style.left = newX + 'px';
+                }
+            }
+
+            function createResizeHandle(position) {
+                const handle = document.createElement('div');
+                handle.classList.add('resize-handle');
+                handle.classList.add(position);
+                dropZone.appendChild(handle);
+                handle.addEventListener('mousedown', function (e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    startWidth = parseInt(document.defaultView.getComputedStyle(img).width, 10);
+                    startHeight = parseInt(document.defaultView.getComputedStyle(img).height, 10);
+                    isResizing = true;
+                    window.addEventListener('mousemove', resizeCorner);
+                });
+                return handle;
+            }
+
+            function resizeCorner(e) {
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                const newWidth = startWidth + dx;
+                const newHeight = startHeight + dy;
+                img.style.width = newWidth + 'px';
+                img.style.height = newHeight + 'px';
+
+                let oppositeX, oppositeY;
+                if (position === 'top-left') {
+                    oppositeX = initialImageX + startWidth;
+                    oppositeY = initialImageY + startHeight;
+                } else if (position === 'top-right') {
+                    oppositeX = initialImageX;
+                    oppositeY = initialImageY + startHeight;
+                } else if (position === 'bottom-left') {
+                    oppositeX = initialImageX + startWidth;
+                    oppositeY = initialImageY;
+                } else if (position === 'bottom-right') {
+                    oppositeX = initialImageX;
+                    oppositeY = initialImageY;
+                }
+
+                const adjustedOppositeX = oppositeX - dx;
+                const adjustedOppositeY = oppositeY - dy;
+
+                const newTop = dropZone.offsetTop + adjustedOppositeY;
+                const newLeft = dropZone.offsetLeft + adjustedOppositeX;
+
+                const newWidthFromOpposite = newLeft - dropZone.offsetLeft - initialImageX;
+                const newHeightFromOpposite = newTop - dropZone.offsetTop - initialImageY;
+
+                img.style.top = newTop + 'px';
+                img.style.left = newLeft + 'px';
+                img.style.width = newWidthFromOpposite + 'px';
+                img.style.height = newHeightFromOpposite + 'px';
+            }
+
+            return img;
+        }
+        
+        function setActiveImage(image) {
+            // Remove event listeners from the previous active image
+            const prevActiveImage = document.querySelector('.active-image');
+            if (prevActiveImage) {
+                prevActiveImage.classList.remove('active-image');
+                prevActiveImage.removeEventListener('mousedown', startDrag);
+                window.removeEventListener('mousemove', moveImage);
+            }
+
+            // Add event listeners to the new active image
+            image.classList.add('active-image');
+            image.addEventListener('mousedown', startDrag);
+            window.addEventListener('mousemove', moveImage);
+        }
+
+    </script>
+</body>
+</html>
